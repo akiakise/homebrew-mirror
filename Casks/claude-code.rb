@@ -8,12 +8,14 @@ cask "claude-code" do
          arm64_linux:  "452dddff140b5caf00a5410333a3d6db82c73ea2dec74b1541fae18e97d47dca",
          x86_64_linux: "604d29a6869409106b6a1110bdadcc8b72e8654a5a865d23258f938a696e348e"
 
-  url({
-    "452dddff140b5caf00a5410333a3d6db82c73ea2dec74b1541fae18e97d47dca" => "https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-claude-code-2.1.323-d5b40d3716276d3c-452dddff140b5caf/claude",
-    "5432918d904a9b6afef7bb79d20df24d76052eabc1f41bceb84091d21f8889a7" => "https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-claude-code-2.1.323-d5b40d3716276d3c-5432918d904a9b6a/claude",
-    "604d29a6869409106b6a1110bdadcc8b72e8654a5a865d23258f938a696e348e" => "https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-claude-code-2.1.323-d5b40d3716276d3c-604d29a686940910/claude",
-    "d68f8e14d65a1784391775cc1aadaf0f217ae5155813a9f91526e846018a25c4" => "https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-claude-code-2.1.323-d5b40d3716276d3c-d68f8e14d65a1784/claude",
-  }.fetch(sha256.to_s) { "https://downloads.claude.ai/claude-code-releases/#{version}/#{os}-#{arch}/claude" })
+  mirror_download = {
+    "452dddff140b5caf00a5410333a3d6db82c73ea2dec74b1541fae18e97d47dca" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-8a289c319d72cbea18607736570512024a37465b/claude-code-2-1-323-452dddff140b5caf-claude", "claude"],
+    "5432918d904a9b6afef7bb79d20df24d76052eabc1f41bceb84091d21f8889a7" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-8a289c319d72cbea18607736570512024a37465b/claude-code-2-1-323-5432918d904a9b6a-claude", "claude"],
+    "604d29a6869409106b6a1110bdadcc8b72e8654a5a865d23258f938a696e348e" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-8a289c319d72cbea18607736570512024a37465b/claude-code-2-1-323-604d29a686940910-claude", "claude"],
+    "d68f8e14d65a1784391775cc1aadaf0f217ae5155813a9f91526e846018a25c4" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-8a289c319d72cbea18607736570512024a37465b/claude-code-2-1-323-d68f8e14d65a1784-claude", "claude"],
+  }[sha256.to_s]
+  url(mirror_download&.first || "https://downloads.claude.ai/claude-code-releases/#{version}/#{os}-#{arch}/claude")
+  rename File.basename(mirror_download.first), mirror_download.last if mirror_download
   name "Claude Code"
   desc "Terminal-based AI coding assistant"
   homepage "https://claude.com/product/claude-code"

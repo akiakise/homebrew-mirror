@@ -6,10 +6,12 @@ cask "chatgpt" do
   sha256 arm:   "bc0a42d01a9bdede1c1c2b876151a818560d6b1eaf1f45ae402d3d2229c34220",
          intel: "72617c861a86f3e2aba7f60422bb0cf793a7a3969a387de52e6a685d3e970d4f"
 
-  url({
-    "72617c861a86f3e2aba7f60422bb0cf793a7a3969a387de52e6a685d3e970d4f" => "https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-chatgpt-26.1117.41037-f817421632567020/ChatGPT-darwin-x64-26.1117.41037.zip",
-    "bc0a42d01a9bdede1c1c2b876151a818560d6b1eaf1f45ae402d3d2229c34220" => "https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-chatgpt-26.1117.41037-f817421632567020/ChatGPT-darwin-arm64-26.1117.41037.zip",
-  }.fetch(sha256.to_s) { "https://persistent.oaistatic.com/codex-app-prod/ChatGPT-darwin-#{arch}-#{version}.zip" })
+  mirror_download = {
+    "72617c861a86f3e2aba7f60422bb0cf793a7a3969a387de52e6a685d3e970d4f" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-8a289c319d72cbea18607736570512024a37465b/chatgpt-26-1117-41037-72617c861a86f3e2-ChatGPT-darwin-x64-26.1117.41037.zip", "ChatGPT-darwin-x64-26.1117.41037.zip"],
+    "bc0a42d01a9bdede1c1c2b876151a818560d6b1eaf1f45ae402d3d2229c34220" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-8a289c319d72cbea18607736570512024a37465b/chatgpt-26-1117-41037-bc0a42d01a9bdede-ChatGPT-darwin-arm64-26.1117.41037.zip", "ChatGPT-darwin-arm64-26.1117.41037.zip"],
+  }[sha256.to_s]
+  url(mirror_download&.first || "https://persistent.oaistatic.com/codex-app-prod/ChatGPT-darwin-#{arch}-#{version}.zip")
+  rename File.basename(mirror_download.first), mirror_download.last if mirror_download
   name "ChatGPT"
   desc "OpenAI's official ChatGPT desktop app"
   homepage "https://chatgpt.com/"
