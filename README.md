@@ -25,7 +25,7 @@ brew install --cask akiakise/mirror/chatgpt
 
 推送到 `main` 时会触发同步，每天北京时间 **00:00（UTC+8）** 也会定时检查 Homebrew 官方 cask。更改配置后，可在 **Actions → 同步 Homebrew 镜像 → Run workflow** 手动运行。GitHub 的定时执行可能延迟。
 
-有变化时，工作流使用内置 `GITHUB_TOKEN` 提交并推送 README 和 cask 文件，不会再次触发同步。同步任务也会跳过 `github-actions[bot]` 发起的推送。默认分支须允许工作流推送。
+有变化时，工作流会更新镜像清单和 cask 定义。默认分支须允许工作流推送。
 
 在 **Settings → Secrets and variables → Actions → Variables** 设置下列仓库变量：
 
@@ -38,12 +38,12 @@ brew install --cask akiakise/mirror/chatgpt
 
 Release 按同步开始时的北京时间（UTC+8）归档，例如标签 `mirror-2026-11-23`、标题「Homebrew 镜像 2026-11-23」。同一天的同步使用同一个 Release，不受触发提交影响。一个 cask 有多个安装包时，附件名会标出平台与架构，例如 `macos-arm64`、`macos-intel`、`linux-arm64`、`linux-intel`，以区分同一软件版本的不同包。
 
-当天已有 Release 时，工作流先下载并校验新包，再清空当天的旧附件并重新上传。GitHub 侧的 SHA-256 全部核对通过后，才写入 cask 下载地址。首次从旧标签切换到日期标签时，即使上游版本没变，也会发布当天的 Release，不清理旧 Release。之后若当天没有 Release、定义和镜像配置没有变化，且当前引用的镜像附件完整，则不新建 Release。
+如果所有已启用镜像 cask 的上游版本都没有变化，工作流只读取上游版本元数据后直接跳过，不下载上游源文件和安装包、不覆盖 Release，也不写入 README 或 cask 文件。同日只有检测到至少一个已启用镜像 cask 版本更新时，才会覆盖当天的安装包；历史 Release 不受影响。
 
-覆盖期间，下载链接可能暂时不可用；被替换版本的旧链接会失效。若上传失败，可重新触发同步。请勿启用不可变发布。其他日期或旧标签的 Release 不会被迁移、覆盖或清理。若默认分支上的同步代码已经更新，请从默认分支重新触发工作流。
+覆盖期间，下载链接可能暂时不可用；被替换版本的旧链接会失效。若上传失败，可重新触发同步。请勿启用不可变发布，否则无法覆盖当天的附件。
 
-## 维护清单
+## 项目维护
 
-在上表标记内新增一行，例如 ``| `example-cask` | 待同步 | 待同步 |``。版本和下载来源由同步脚本填写。移除时同时删除对应的 `Casks/<名称>.rb`，以及 `MIRROR_ALLOWED_CASKS` 中的名称。安装包镜像要求固定 SHA-256 和单个顶层 HTTPS 下载地址。不支持的格式（例如直接压缩单个二进制的 `.xz`）会报错，不改写下载地址。
+新增或移除镜像、修改同步逻辑及本地验证，见 [AGENTS.md](AGENTS.md)。
 
-本地运行 `python3 -B scripts/sync_casks.py --check` 可检查上游定义及配置，不写入文件、不下载或上传安装包。源文件来自 [Homebrew/homebrew-cask](https://github.com/Homebrew/homebrew-cask)，许可见 [Casks/LICENSE](Casks/LICENSE)。
+源文件来自 [Homebrew/homebrew-cask](https://github.com/Homebrew/homebrew-cask)，许可见 [Casks/LICENSE](Casks/LICENSE)。

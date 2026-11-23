@@ -18,6 +18,7 @@ TABLE_HEADER = "| Cask | Homebrew 上游版本 | 下载来源 |\n| --- | --- | -
 TOKEN_PATTERN = r"[a-z0-9]+(?:[-@+.][a-z0-9]+)*"
 ROW_PATTERN = re.compile(rf"\| `({TOKEN_PATTERN})` \| [^|]+ \| [^|]+ \|")
 URL_STANZA = re.compile(r'^  url ("(?:[^"\\#\n]|\\[^\n]|#\{[^{}\n]+\})+")$', re.MULTILINE)
+VERSION_STANZA = re.compile(r'^  version "([^"]+)"$', re.MULTILINE)
 SHA256_PATTERN = r"[0-9a-f]{64}"
 CASK_API = "https://formulae.brew.sh/api/cask"
 UPSTREAM_RAW = "https://raw.githubusercontent.com/Homebrew/homebrew-cask"
@@ -70,8 +71,7 @@ def download(url, destination=None):
     return subprocess.run([*command, "--", url], check=True, stdout=subprocess.PIPE).stdout
 
 
-def upstream_cask(token):
-    metadata = json.loads(download(f"{CASK_API}/{token}.json"))
+def validate_upstream_metadata(token, metadata):
     commit = metadata["tap_git_head"]
     path = metadata["ruby_source_path"]
     version = metadata["version"]
@@ -82,12 +82,31 @@ def upstream_cask(token):
         or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._,+-]*", version)
     ):
         raise ValueError(f"{token}：上游元数据不符合预期")
+    return metadata
+
+
+def upstream_metadata(token):
+    return validate_upstream_metadata(token, json.loads(download(f"{CASK_API}/{token}.json")))
+
+
+def upstream_cask(token, metadata=None):
+    metadata = metadata or upstream_metadata(token)
+    commit = metadata["tap_git_head"]
+    path = metadata["ruby_source_path"]
     source = download(f"{UPSTREAM_RAW}/{commit}/{path}")
     if hashlib.sha256(source).hexdigest() != metadata["ruby_source_checksum"]["sha256"]:
         raise ValueError(f"{token}：上游 Ruby 源文件的 SHA-256 不匹配")
     if not source.startswith(f'cask "{token}" do\n'.encode()):
         raise ValueError(f"{token}：上游 Ruby 源文件的 cask 名称不匹配")
     return metadata, source.decode("utf-8")
+
+
+def local_cask_version(token):
+    path = ROOT / "Casks" / f"{token}.rb"
+    if not path.is_file():
+        return None
+    match = VERSION_STANZA.search(path.read_text(encoding="utf-8"))
+    return match.group(1) if match else None
 
 
 def platform_label(platform):
@@ -260,11 +279,19 @@ def sync(repo, run_date, allowed, prefix, check):
     if allowed - set(tokens):
         raise ValueError(f"MIRROR_ALLOWED_CASKS 包含不在 README.md 清单中的名称：{', '.join(sorted(allowed - set(tokens)))}")
 
+    metadata_by_token = {token: upstream_metadata(token) for token in tokens}
+
+    version_tokens = allowed or set(tokens)
+    if not check and all(local_cask_version(token) == metadata_by_token[token]["version"] for token in version_tokens):
+        print("所有已启用镜像 cask 版本均未更新，跳过下载、Release 覆盖和文件写入。")
+        return
+
+    upstream = {token: upstream_cask(token, metadata_by_token[token]) for token in tokens}
     rows = [TABLE_HEADER]
     definitions = {}
     pending = {}
     for token in tokens:
-        metadata, source = upstream_cask(token)
+        metadata, source = upstream[token]
         version = metadata["version"]
         status = "上游直连"
         if token in allowed:
