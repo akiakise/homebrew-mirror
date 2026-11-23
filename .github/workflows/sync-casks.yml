@@ -20,7 +20,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.sha }}
+      - name: 确认同步代码未变更并检出分支当前版本
+        run: |
+          git fetch --no-tags origin "$GITHUB_REF"
+          if ! git diff --quiet "$GITHUB_SHA" FETCH_HEAD -- .github/workflows/sync-casks.yml scripts/; then
+            echo '分支上的同步代码已更新，请从默认分支重新触发工作流。'
+            exit 1
+          fi
+          git switch --detach FETCH_HEAD
       - name: 同步上游 cask 和允许镜像的安装包
         env:
           GH_TOKEN: ${{ github.token }}

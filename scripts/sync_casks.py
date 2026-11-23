@@ -7,7 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +21,10 @@ SHA256_PATTERN = r"[0-9a-f]{64}"
 CASK_API = "https://formulae.brew.sh/api/cask"
 UPSTREAM_RAW = "https://raw.githubusercontent.com/Homebrew/homebrew-cask"
 DEFAULT_PROXY = "https://gh-proxy.com/"
+MIRROR_TAG_PREFIX = "mirror-"
+COMMIT_PATTERN = r"[0-9a-f]{40}"
+SUPPORTED_SUFFIXES = (".zip", ".dmg", ".pkg", ".tar", ".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".bin", ".exe", ".sh")
+MAX_RELEASE_ASSETS = 1000
 MAX_ASSET_SIZE = (2 << 30) - 1
 
 
@@ -84,13 +88,12 @@ def upstream_cask(token):
     return metadata, source.decode("utf-8")
 
 
-def release_plan(repo, prefix, metadata):
+def release_plan(repo, tag, prefix, metadata):
     token, version = metadata["token"], metadata["version"]
     if version == "latest":
         raise ValueError(f"{token}：无法为无固定版本的 cask 镜像安装包")
     targets = [metadata, *(metadata | delta for delta in metadata["variations"].values())]
     files = {}
-    hashes_by_name = {}
     for target in targets:
         checksum = target["sha256"]
         if target is not metadata and checksum is None:
@@ -105,99 +108,135 @@ def release_plan(repo, prefix, metadata):
             or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?", name)
         ):
             raise ValueError(f"{token}：发现未校验的安装包或不支持的下载地址")
+        if "." in name and not name.lower().endswith(SUPPORTED_SUFFIXES):
+            raise ValueError(f"{token}：暂不支持镜像安装包的文件格式：{name}")
         if files.setdefault(url, (name, checksum)) != (name, checksum):
             raise ValueError(f"{token}：同一个下载地址对应不同的校验和")
-        hashes_by_name.setdefault(name, set()).add(checksum)
 
-    fingerprint = hashlib.sha256(json.dumps(sorted(set(files.values()))).encode()).hexdigest()[:16]
-    tag_version = re.sub(r"[^A-Za-z0-9.-]+|\.{2,}", "-", version)
-    base_tag = f"mirror-{token}-{tag_version}-{fingerprint}"
-    releases = {}
-    mirror_urls = {}
+    name_prefix = re.sub(r"[^A-Za-z0-9_-]+", "-", f"{token}-{version}")
+    assets = {}
+    mirror_downloads = {}
     for url, (name, checksum) in sorted(files.items()):
-        tag = base_tag if len(hashes_by_name[name]) == 1 else f"{base_tag}-{checksum[:16]}"
-        releases.setdefault(tag, {}).setdefault(name, (url, checksum))
-        mirror_url = f"{prefix}https://github.com/{repo}/releases/download/{tag}/{name}"
-        if mirror_urls.setdefault(checksum, mirror_url) != mirror_url:
-            raise ValueError(f"{token}：相同校验和对应多个不同的附件文件名")
-    return releases, mirror_urls
+        if checksum in mirror_downloads:
+            if mirror_downloads[checksum][1] != name:
+                raise ValueError(f"{token}：相同校验和对应多个不同的附件文件名")
+            continue
+        asset_name = f"{name_prefix}-{checksum[:16]}-{name}"
+        if assets.setdefault(asset_name, (url, checksum))[1] != checksum:
+            raise ValueError(f"{token}：附件文件名冲突：{asset_name}")
+        mirror_url = f"{prefix}https://github.com/{repo}/releases/download/{tag}/{asset_name}"
+        mirror_downloads[checksum] = mirror_url, name
+    return assets, mirror_downloads
 
 
-def replace_download_url(token, source, mirror_urls):
+def replace_download_url(token, source, mirror_downloads):
     matches = list(URL_STANZA.finditer(source))
     if len(matches) != 1:
         raise ValueError(f"{token}：上游需要有且仅有一个独立的顶层 URL 声明")
     match = matches[0]
-    mapping = "".join(f"    {json.dumps(checksum)} => {json.dumps(url)},\n" for checksum, url in sorted(mirror_urls.items()))
-    replacement = f"  url({{\n{mapping}  }}.fetch(sha256.to_s) {{ {match[1]} }})"
+    mapping = "".join(f"    {json.dumps(checksum)} => {json.dumps(download)},\n" for checksum, download in sorted(mirror_downloads.items()))
+    replacement = (
+        f"  mirror_download = {{\n{mapping}  }}[sha256.to_s]\n"
+        f"  url(mirror_download&.first || {match[1]})\n"
+        "  rename File.basename(mirror_download.first), mirror_download.last if mirror_download"
+    )
     return source[:match.start()] + replacement + source[match.end():]
 
 
-def gh(repo, *args, allow_not_found=False):
-    result = subprocess.run(["gh", *args, "--repo", repo], capture_output=True, text=True)
-    if allow_not_found and result.returncode == 1 and result.stderr.strip() == "release not found":
-        return None
+def gh(*args):
+    result = subprocess.run(["gh", *args], capture_output=True, text=True)
     if result.returncode:
         raise ValueError(f"gh {' '.join(args[:2])} 失败：{result.stderr.strip()}")
     return result.stdout
 
 
-def view_release(repo, tag):
-    output = gh(repo, "release", "view", tag, "--json", "assets,isDraft", allow_not_found=True)
-    return None if output is None else json.loads(output)
+def github_api(path, *args):
+    return gh("api", f"https://api.github.com/{path}", "--hostname", "github.com", *args)
 
 
-def missing_assets(tag, expected, release):
-    existing = {asset["name"]: asset for asset in release["assets"]} if release else {}
-    missing = []
-    placeholders = []
-    for name, (_, checksum) in expected.items():
-        asset = existing.get(name)
-        if asset is None:
-            missing.append(name)
-        elif release["isDraft"] and asset["state"] == "starter" and asset["size"] == 0:
-            missing.append(name)
-            placeholders.append(name)
-        elif asset["state"] != "uploaded" or asset.get("digest") != f"sha256:{checksum}":
-            raise ValueError(f"{tag}/{name}：GitHub 上的附件摘要或状态不匹配")
-    return missing, placeholders
+def github_list(path):
+    pages = json.loads(github_api(path, "--paginate", "--slurp"))
+    if not isinstance(pages, list) or not pages or not all(isinstance(page, list) for page in pages):
+        raise ValueError(f"{path}：GitHub 分页结果格式不正确")
+    return [item for page in pages for item in page]
 
 
-def publish_release(repo, tag, assets):
-    release = view_release(repo, tag)
-    missing, placeholders = missing_assets(tag, assets, release)
-    if release and not release["isDraft"]:
-        if missing:
-            raise ValueError(f"{tag}：已发布的 Release 缺少附件：{', '.join(missing)}")
-        return
-
-    if missing:
-        with tempfile.TemporaryDirectory(prefix="brew-mirror-") as directory:
-            paths = []
-            for name in missing:
-                url, checksum = assets[name]
-                path = Path(directory) / name
-                download(url, path)
-                with path.open("rb") as package:
-                    actual = hashlib.file_digest(package, "sha256").hexdigest()
-                if path.stat().st_size > MAX_ASSET_SIZE or actual != checksum:
-                    raise ValueError(f"{tag}/{name}：上游安装包超过大小限制或 SHA-256 不匹配")
-                paths.append(str(path))
-            if release is None:
-                gh(repo, "release", "create", tag, *paths, "--draft", "--latest=false",
-                   "--title", tag, "--notes", "原样同步自 Homebrew cask 指定的上游下载地址。")
-            else:
-                for name in placeholders:
-                    gh(repo, "release", "delete-asset", tag, name, "--yes")
-                gh(repo, "release", "upload", tag, *paths)
-
-    release = view_release(repo, tag)
-    if release is None or missing_assets(tag, assets, release)[0]:
-        raise ValueError(f"{tag}：未找到完整的已校验附件")
-    gh(repo, "release", "edit", tag, "--draft=false", "--latest=false")
+def find_release(repo, tag):
+    releases = github_list(f"repos/{repo}/releases")
+    matches = [release for release in releases if release["tag_name"] == tag]
+    if len(matches) > 1:
+        raise ValueError(f"{tag}：发现多个同名 Release，无法确定上传目标")
+    return next(iter(matches), None)
 
 
-def sync(repo, allowed, prefix, check):
+def verify_release_target(repo, tag, commit, release):
+    refs = json.loads(github_api(f"repos/{repo}/git/matching-refs/tags/{tag}"))
+    if not isinstance(refs, list):
+        raise ValueError(f"{tag}：GitHub 标签查询结果格式不正确")
+    matches = [ref["object"] for ref in refs if ref["ref"] == f"refs/tags/{tag}"]
+    if matches:
+        if len(matches) != 1 or matches[0]["type"] != "commit" or matches[0]["sha"] != commit:
+            raise ValueError(f"{tag}：同名标签未直接指向触发工作流的提交")
+    elif release and (not release["draft"] or release["target_commitish"] != commit):
+        raise ValueError(f"{tag}：已有 Release 未绑定到触发工作流的提交")
+
+
+def publish_release(repo, tag, commit, assets, release):
+    endpoint = f"repos/{repo}/releases"
+    verify_release_target(repo, tag, commit, release)
+    if release and release.get("immutable"):
+        raise ValueError(f"{tag}：Release 已设为不可变，无法清理并重新上传附件")
+    if len(assets) > MAX_RELEASE_ASSETS:
+        raise ValueError(f"{tag}：附件数量超过 {MAX_RELEASE_ASSETS} 个的上限")
+
+    with tempfile.TemporaryDirectory(prefix="brew-mirror-") as directory:
+        paths = []
+        for name, (url, checksum) in assets.items():
+            path = Path(directory) / name
+            download(url, path)
+            with path.open("rb") as package:
+                actual = hashlib.file_digest(package, "sha256").hexdigest()
+            if path.stat().st_size > MAX_ASSET_SIZE or actual != checksum:
+                raise ValueError(f"{tag}/{name}：上游安装包超过大小限制或 SHA-256 不匹配")
+            paths.append(path)
+
+        if release is None:
+            release = json.loads(github_api(
+                endpoint, "--method", "POST", "--raw-field", f"tag_name={tag}", "--raw-field", f"target_commitish={commit}",
+                "--field", "draft=true", "--raw-field", "make_latest=false", "--raw-field", f"name=Homebrew 镜像 {commit[:12]}",
+            ))
+
+        release_id = release["id"]
+        if type(release_id) is not int or release_id <= 0 or release["tag_name"] != tag:
+            raise ValueError(f"{tag}：GitHub 返回的 Release 不匹配")
+        release_path = f"{endpoint}/{release_id}"
+        upload_url = release["upload_url"].removesuffix("{?name,label}")
+        if upload_url.lower() != f"https://uploads.github.com/{release_path}/assets".lower():
+            raise ValueError(f"{tag}：GitHub 返回的上传地址不匹配")
+        verify_release_target(repo, tag, commit, release)
+        old_assets = github_list(f"{release_path}/assets")
+        asset_ids = [asset["id"] for asset in old_assets]
+        if not all(type(asset_id) is int and asset_id > 0 for asset_id in asset_ids):
+            raise ValueError(f"{tag}：GitHub 返回了无效的附件 ID")
+        for asset_id in asset_ids:
+            github_api(f"{endpoint}/assets/{asset_id}", "--method", "DELETE")
+        for path in paths:
+            gh("api", f"{upload_url}?name={quote(path.name)}", "--hostname", "github.com", "--method", "POST",
+               "--header", "Content-Type: application/octet-stream", "--input", str(path))
+
+    uploaded = github_list(f"{release_path}/assets")
+    expected = {name: f"sha256:{checksum}" for name, (_, checksum) in assets.items()}
+    if len(uploaded) != len(expected) or {asset["name"]: asset["digest"] for asset in uploaded if asset["state"] == "uploaded"} != expected:
+        raise ValueError(f"{tag}：GitHub 附件不完整或 SHA-256 不匹配")
+    if release["draft"]:
+        release = json.loads(github_api(release_path, "--method", "PATCH", "--field", "draft=false", "--raw-field", "make_latest=false"))
+        if release["draft"] or release["id"] != release_id or release["tag_name"] != tag:
+            raise ValueError(f"{tag}：未找到已发布的目标 Release")
+    verify_release_target(repo, tag, commit, release)
+
+
+def sync(repo, commit, allowed, prefix, check):
+    tag = f"{MIRROR_TAG_PREFIX}{commit}"
     readme = ROOT / "README.md"
     before, tokens, after = parse_catalog(readme.read_text(encoding="utf-8"))
     if allowed - set(tokens):
@@ -211,21 +250,33 @@ def sync(repo, allowed, prefix, check):
         version = metadata["version"]
         status = "上游直连"
         if token in allowed:
-            releases, mirror_urls = release_plan(repo, prefix, metadata)
-            source = replace_download_url(token, source, mirror_urls)
-            pending.update(releases)
+            assets, mirror_downloads = release_plan(repo, tag, prefix, metadata)
+            source = replace_download_url(token, source, mirror_downloads)
+            if pending.keys() & assets.keys():
+                raise ValueError(f"{token}：附件文件名与其他 cask 冲突")
+            pending.update(assets)
             status = "GitHub Releases"
         print(f"{token} {version}：{status}", flush=True)
         rows.append(f"| `{token}` | `{version}` | {status} |")
         definitions[ROOT / "Casks" / f"{token}.rb"] = source
 
     if check:
-        print(f"检查完成：计划使用 {len(pending)} 个 Release、{sum(map(len, pending.values()))} 个附件，不执行发布。")
+        target = f"{len(pending)} 个附件统一存入 {tag}" if pending else "无需发布附件"
+        print(f"检查完成：{target}，不执行发布。")
         return
 
-    for tag, assets in pending.items():
-        publish_release(repo, tag, assets)
     definitions[readme] = before + "\n" + "\n".join(rows) + "\n" + after
+    link_pattern = re.compile(rf"(https://github\.com/{re.escape(repo)}/releases/download/){MIRROR_TAG_PREFIX}{COMMIT_PATTERN}/")
+    unchanged = all(
+        path.is_file() and link_pattern.sub(r"\1", path.read_text(encoding="utf-8")) == link_pattern.sub(r"\1", contents)
+        for path, contents in definitions.items()
+    )
+    release = find_release(repo, tag) if pending else None
+    if unchanged and release is None:
+        print("上游定义与镜像配置没有变化，跳过发布。")
+        return
+    if pending:
+        publish_release(repo, tag, commit, pending, release)
     for path, contents in definitions.items():
         path.write_text(contents, encoding="utf-8")
 
@@ -239,7 +290,12 @@ def main():
         raise ValueError("GITHUB_REPOSITORY 必须为 owner/repo")
     allowed = set(filter(None, re.split(r"[\s,]+", os.environ.get("MIRROR_ALLOWED_CASKS", ""))))
     prefix = proxy_prefix(os.environ.get("MIRROR_PROXY_PREFIX", "").strip())
-    sync(repo, allowed, prefix, args.check)
+    commit = os.environ.get("GITHUB_SHA")
+    if not commit and args.check:
+        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    if not commit or not re.fullmatch(COMMIT_PATTERN, commit):
+        raise ValueError("GITHUB_SHA 必须是触发工作流的完整提交 SHA")
+    sync(repo, commit, allowed, prefix, args.check)
 
 
 if __name__ == "__main__":
