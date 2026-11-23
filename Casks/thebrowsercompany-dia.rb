@@ -2,7 +2,9 @@ cask "thebrowsercompany-dia" do
   version "1.58.1,91403"
   sha256 "738346f55d1a595061c5609ebe68a64c387e52ed7971106ec7ec8adefc1bb765"
 
-  url "https://releases.diabrowser.com/release/Dia-#{version.tr(",", "-")}.zip"
+  url({
+    "738346f55d1a595061c5609ebe68a64c387e52ed7971106ec7ec8adefc1bb765" => "https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-thebrowsercompany-dia-1.58.1-91403-fb1fb297be8b952a/Dia-1.58.1-91403.zip",
+  }.fetch(sha256.to_s) { "https://releases.diabrowser.com/release/Dia-#{version.tr(",", "-")}.zip" })
   name "Dia"
   desc "Web browser"
   homepage "https://www.diabrowser.com/"
