@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -22,7 +23,8 @@ CASK_API = "https://formulae.brew.sh/api/cask"
 UPSTREAM_RAW = "https://raw.githubusercontent.com/Homebrew/homebrew-cask"
 DEFAULT_PROXY = "https://gh-proxy.com/"
 MIRROR_TAG_PREFIX = "mirror-"
-COMMIT_PATTERN = r"[0-9a-f]{40}"
+RELEASE_DATE_PATTERN = r"[0-9]{4}-[0-9]{2}-[0-9]{2}"
+UTC_PLUS_8 = timezone(timedelta(hours=8))
 SUPPORTED_SUFFIXES = (".zip", ".dmg", ".pkg", ".tar", ".tar.gz", ".tar.bz2", ".tar.xz", ".tgz", ".bin", ".exe", ".sh")
 MAX_RELEASE_ASSETS = 1000
 MAX_ASSET_SIZE = (2 << 30) - 1
@@ -88,22 +90,31 @@ def upstream_cask(token):
     return metadata, source.decode("utf-8")
 
 
+def platform_label(platform):
+    arch = "arm64" if platform.startswith("arm64_") else "intel"
+    system = "linux" if platform.endswith("_linux") else "macos"
+    return f"{system}-{arch}"
+
+
 def release_plan(repo, tag, prefix, metadata):
     token, version = metadata["token"], metadata["version"]
     if version == "latest":
         raise ValueError(f"{token}：无法为无固定版本的 cask 镜像安装包")
-    targets = [metadata, *(metadata | delta for delta in metadata["variations"].values())]
+    platforms = metadata.get("supported_platforms")
+    if not platforms:
+        raise ValueError(f"{token}：上游未声明支持的平台")
     files = {}
-    for target in targets:
+    platforms_by_checksum = {}
+    for platform in platforms:
+        target = metadata | metadata["variations"].get(platform, {})
         checksum = target["sha256"]
-        if target is not metadata and checksum is None:
-            continue
         url = target["url"]
+        if not isinstance(url, str) or not checksum or not re.fullmatch(SHA256_PATTERN, checksum):
+            raise ValueError(f"{token} {platform}：安装包缺少下载地址或固定 SHA-256")
         parsed = urlsplit(url)
         name = parsed.path.rsplit("/", 1)[-1]
         if (
-            not checksum or not re.fullmatch(SHA256_PATTERN, checksum)
-            or parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
+            parsed.scheme != "https" or not parsed.hostname or parsed.username is not None
             or target.get("url_specs")
             or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_-])?", name)
         ):
@@ -112,6 +123,7 @@ def release_plan(repo, tag, prefix, metadata):
             raise ValueError(f"{token}：暂不支持镜像安装包的文件格式：{name}")
         if files.setdefault(url, (name, checksum)) != (name, checksum):
             raise ValueError(f"{token}：同一个下载地址对应不同的校验和")
+        platforms_by_checksum.setdefault(checksum, set()).add(platform_label(platform))
 
     name_prefix = re.sub(r"[^A-Za-z0-9_-]+", "-", f"{token}-{version}")
     assets = {}
@@ -121,7 +133,9 @@ def release_plan(repo, tag, prefix, metadata):
             if mirror_downloads[checksum][1] != name:
                 raise ValueError(f"{token}：相同校验和对应多个不同的附件文件名")
             continue
-        asset_name = f"{name_prefix}-{checksum[:16]}-{name}"
+        labels = "-".join(sorted(platforms_by_checksum[checksum]))
+        file_prefix = f"{name_prefix}-{labels}" if len(platforms_by_checksum) > 1 else name_prefix
+        asset_name = f"{file_prefix}-{checksum[:16]}-{name}"
         if assets.setdefault(asset_name, (url, checksum))[1] != checksum:
             raise ValueError(f"{token}：附件文件名冲突：{asset_name}")
         mirror_url = f"{prefix}https://github.com/{repo}/releases/download/{tag}/{asset_name}"
@@ -169,21 +183,22 @@ def find_release(repo, tag):
     return next(iter(matches), None)
 
 
-def verify_release_target(repo, tag, commit, release):
-    refs = json.loads(github_api(f"repos/{repo}/git/matching-refs/tags/{tag}"))
-    if not isinstance(refs, list):
-        raise ValueError(f"{tag}：GitHub 标签查询结果格式不正确")
-    matches = [ref["object"] for ref in refs if ref["ref"] == f"refs/tags/{tag}"]
-    if matches:
-        if len(matches) != 1 or matches[0]["type"] != "commit" or matches[0]["sha"] != commit:
-            raise ValueError(f"{tag}：同名标签未直接指向触发工作流的提交")
-    elif release and (not release["draft"] or release["target_commitish"] != commit):
-        raise ValueError(f"{tag}：已有 Release 未绑定到触发工作流的提交")
+def read_release(path, release_id, tag):
+    release = json.loads(github_api(path))
+    if release["id"] != release_id or release["tag_name"] != tag:
+        raise ValueError(f"{tag}：目标 Release 的标签已改变")
+    return release
 
 
-def publish_release(repo, tag, commit, assets, release):
+def release_has_assets(path, assets):
+    uploaded = github_list(f"{path}/assets")
+    expected = {name: f"sha256:{checksum}" for name, (_, checksum) in assets.items()}
+    actual = {asset["name"]: asset.get("digest") for asset in uploaded if asset["state"] == "uploaded"}
+    return len(uploaded) == len(expected) and actual == expected
+
+
+def publish_release(repo, tag, title, assets, release):
     endpoint = f"repos/{repo}/releases"
-    verify_release_target(repo, tag, commit, release)
     if release and release.get("immutable"):
         raise ValueError(f"{tag}：Release 已设为不可变，无法清理并重新上传附件")
     if len(assets) > MAX_RELEASE_ASSETS:
@@ -202,19 +217,21 @@ def publish_release(repo, tag, commit, assets, release):
 
         if release is None:
             release = json.loads(github_api(
-                endpoint, "--method", "POST", "--raw-field", f"tag_name={tag}", "--raw-field", f"target_commitish={commit}",
-                "--field", "draft=true", "--raw-field", "make_latest=false", "--raw-field", f"name=Homebrew 镜像 {commit[:12]}",
+                endpoint, "--method", "POST", "--raw-field", f"tag_name={tag}", "--field", "draft=true",
+                "--raw-field", "make_latest=false", "--raw-field", f"name={title}",
             ))
 
         release_id = release["id"]
         if type(release_id) is not int or release_id <= 0 or release["tag_name"] != tag:
             raise ValueError(f"{tag}：GitHub 返回的 Release 不匹配")
         release_path = f"{endpoint}/{release_id}"
+        old_assets = github_list(f"{release_path}/assets")
+        release = read_release(release_path, release_id, tag)
+        if release.get("immutable"):
+            raise ValueError(f"{tag}：Release 已设为不可变，无法清理并重新上传附件")
         upload_url = release["upload_url"].removesuffix("{?name,label}")
         if upload_url.lower() != f"https://uploads.github.com/{release_path}/assets".lower():
             raise ValueError(f"{tag}：GitHub 返回的上传地址不匹配")
-        verify_release_target(repo, tag, commit, release)
-        old_assets = github_list(f"{release_path}/assets")
         asset_ids = [asset["id"] for asset in old_assets]
         if not all(type(asset_id) is int and asset_id > 0 for asset_id in asset_ids):
             raise ValueError(f"{tag}：GitHub 返回了无效的附件 ID")
@@ -224,19 +241,20 @@ def publish_release(repo, tag, commit, assets, release):
             gh("api", f"{upload_url}?name={quote(path.name)}", "--hostname", "github.com", "--method", "POST",
                "--header", "Content-Type: application/octet-stream", "--input", str(path))
 
-    uploaded = github_list(f"{release_path}/assets")
-    expected = {name: f"sha256:{checksum}" for name, (_, checksum) in assets.items()}
-    if len(uploaded) != len(expected) or {asset["name"]: asset["digest"] for asset in uploaded if asset["state"] == "uploaded"} != expected:
+    if not release_has_assets(release_path, assets):
         raise ValueError(f"{tag}：GitHub 附件不完整或 SHA-256 不匹配")
-    if release["draft"]:
-        release = json.loads(github_api(release_path, "--method", "PATCH", "--field", "draft=false", "--raw-field", "make_latest=false"))
-        if release["draft"] or release["id"] != release_id or release["tag_name"] != tag:
-            raise ValueError(f"{tag}：未找到已发布的目标 Release")
-    verify_release_target(repo, tag, commit, release)
+    release = read_release(release_path, release_id, tag)
+    if release["draft"] or release["name"] != title:
+        release = json.loads(github_api(
+            release_path, "--method", "PATCH", "--field", "draft=false", "--raw-field", "make_latest=false", "--raw-field", f"name={title}",
+        ))
+    if release["draft"] or release["id"] != release_id or release["tag_name"] != tag or release["name"] != title:
+        raise ValueError(f"{tag}：未找到已发布的目标 Release")
 
 
-def sync(repo, commit, allowed, prefix, check):
-    tag = f"{MIRROR_TAG_PREFIX}{commit}"
+def sync(repo, run_date, allowed, prefix, check):
+    tag = f"{MIRROR_TAG_PREFIX}{run_date}"
+    title = f"Homebrew 镜像 {run_date}"
     readme = ROOT / "README.md"
     before, tokens, after = parse_catalog(readme.read_text(encoding="utf-8"))
     if allowed - set(tokens):
@@ -266,17 +284,23 @@ def sync(repo, commit, allowed, prefix, check):
         return
 
     definitions[readme] = before + "\n" + "\n".join(rows) + "\n" + after
-    link_pattern = re.compile(rf"(https://github\.com/{re.escape(repo)}/releases/download/){MIRROR_TAG_PREFIX}{COMMIT_PATTERN}/")
+    link_pattern = re.compile(rf"(https://github\.com/{re.escape(repo)}/releases/download/)({MIRROR_TAG_PREFIX}{RELEASE_DATE_PATTERN})/")
+    current = {path: path.read_text(encoding="utf-8") for path in definitions if path.is_file()}
     unchanged = all(
-        path.is_file() and link_pattern.sub(r"\1", path.read_text(encoding="utf-8")) == link_pattern.sub(r"\1", contents)
+        path in current and link_pattern.sub(r"\1", current[path]) == link_pattern.sub(r"\1", contents)
         for path, contents in definitions.items()
     )
     release = find_release(repo, tag) if pending else None
     if unchanged and release is None:
-        print("上游定义与镜像配置没有变化，跳过发布。")
-        return
+        previous_tags = {match[2] for path, contents in current.items() if path != readme for match in link_pattern.finditer(contents)}
+        previous = find_release(repo, next(iter(previous_tags))) if len(previous_tags) == 1 else None
+        if not pending or (
+            previous and not previous["draft"] and release_has_assets(f"repos/{repo}/releases/{previous['id']}", pending)
+        ):
+            print("上游定义与镜像配置没有变化，跳过发布。")
+            return
     if pending:
-        publish_release(repo, tag, commit, pending, release)
+        publish_release(repo, tag, title, pending, release)
     for path, contents in definitions.items():
         path.write_text(contents, encoding="utf-8")
 
@@ -290,12 +314,8 @@ def main():
         raise ValueError("GITHUB_REPOSITORY 必须为 owner/repo")
     allowed = set(filter(None, re.split(r"[\s,]+", os.environ.get("MIRROR_ALLOWED_CASKS", ""))))
     prefix = proxy_prefix(os.environ.get("MIRROR_PROXY_PREFIX", "").strip())
-    commit = os.environ.get("GITHUB_SHA")
-    if not commit and args.check:
-        commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    if not commit or not re.fullmatch(COMMIT_PATTERN, commit):
-        raise ValueError("GITHUB_SHA 必须是触发工作流的完整提交 SHA")
-    sync(repo, commit, allowed, prefix, args.check)
+    run_date = datetime.now(UTC_PLUS_8).date().isoformat()
+    sync(repo, run_date, allowed, prefix, args.check)
 
 
 if __name__ == "__main__":

@@ -36,9 +36,11 @@ brew install --cask akiakise/mirror/chatgpt
 
 官方 cask 的 BSD 许可不涵盖安装包。请逐项核对 [Claude Code](https://github.com/anthropics/claude-code/blob/main/LICENSE.md)、[Dia](https://www.diabrowser.com/termsofuse) 和 [ChatGPT](https://openai.com/policies/terms-of-use/) 的条款及你取得的授权，再配置 `MIRROR_ALLOWED_CASKS`。三项均获授权时，变量值为 `claude-code,thebrowsercompany-dia,chatgpt`。停用镜像会在下一次同步时恢复该项目的上游链接；清空变量时不会操作任何已有 Release。
 
-Release 标签是 `mirror-<GITHUB_SHA>`，指向触发工作流的提交。上游定义和镜像配置无变化、且该提交没有 Release 时，不新建 Release。若该提交已有 Release，工作流会先下载并校验所有新附件，再清空该 Release 的旧附件并重新上传。GitHub 侧的 SHA-256 全部核对通过后，才写入 cask 下载地址。
+Release 按同步开始时的北京时间（UTC+8）归档，例如标签 `mirror-2026-11-23`、标题「Homebrew 镜像 2026-11-23」。同一天的同步使用同一个 Release，不受触发提交影响。一个 cask 有多个安装包时，附件名会标出平台与架构，例如 `macos-arm64`、`macos-intel`、`linux-arm64`、`linux-intel`，以区分同一软件版本的不同包。
 
-覆盖期间，该 Release 的下载链接可能暂时不可用；被替换版本的旧链接会失效。上传失败可重跑同一工作流恢复。请勿启用不可变发布。其他提交的 Release 不会被迁移、覆盖或清理。若默认分支上的同步代码已经更新，请从默认分支重新触发工作流。
+当天已有 Release 时，工作流先下载并校验新包，再清空当天的旧附件并重新上传。GitHub 侧的 SHA-256 全部核对通过后，才写入 cask 下载地址。首次从旧标签切换到日期标签时，即使上游版本没变，也会发布当天的 Release，不清理旧 Release。之后若当天没有 Release、定义和镜像配置没有变化，且当前引用的镜像附件完整，则不新建 Release。
+
+覆盖期间，下载链接可能暂时不可用；被替换版本的旧链接会失效。若上传失败，可重新触发同步。请勿启用不可变发布。其他日期或旧标签的 Release 不会被迁移、覆盖或清理。若默认分支上的同步代码已经更新，请从默认分支重新触发工作流。
 
 ## 维护清单
 
