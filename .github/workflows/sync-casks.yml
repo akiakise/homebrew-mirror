@@ -1,6 +1,8 @@
 name: 同步 Homebrew 镜像
 
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: '0 16 * * *'
   workflow_dispatch:
@@ -14,13 +16,16 @@ concurrency:
 
 jobs:
   sync:
-    if: github.event_name == 'schedule' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: >-
+      (github.event_name == 'schedule' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+      && (github.event_name != 'push' || github.actor != 'github-actions[bot]')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
+          token: ${{ github.token }}
       - name: 确认同步代码未变更并检出分支当前版本
         run: |
           git fetch --no-tags origin "$GITHUB_REF"

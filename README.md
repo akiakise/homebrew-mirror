@@ -23,7 +23,9 @@ brew install --cask akiakise/mirror/chatgpt
 
 ## 自动同步
 
-工作流推送到默认分支后，GitHub Actions 每天北京时间 **00:00（UTC+8）** 检查 Homebrew 官方 cask。首次启用或更改配置后，也可在 **Actions → 同步 Homebrew 镜像 → Run workflow** 手动运行。有变化时才提交 README 和 cask 文件；默认分支须允许该工作流推送。GitHub 的定时执行可能延迟。
+推送到 `main` 时会触发同步，每天北京时间 **00:00（UTC+8）** 也会定时检查 Homebrew 官方 cask。更改配置后，可在 **Actions → 同步 Homebrew 镜像 → Run workflow** 手动运行。GitHub 的定时执行可能延迟。
+
+有变化时，工作流使用内置 `GITHUB_TOKEN` 提交并推送 README 和 cask 文件，不会再次触发同步。同步任务也会跳过 `github-actions[bot]` 发起的推送。默认分支须允许工作流推送。
 
 在 **Settings → Secrets and variables → Actions → Variables** 设置下列仓库变量：
 
