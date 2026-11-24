@@ -1,0 +1,36 @@
+name: 清理历史镜像 Release
+
+on:
+  schedule:
+    - cron: '0 16 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-casks
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          token: ${{ github.token }}
+      - name: 确认清理代码未变更并检出默认分支当前版本
+        run: |
+          git fetch --no-tags origin "$GITHUB_REF"
+          if ! git diff --quiet "$GITHUB_SHA" FETCH_HEAD -- .github/workflows/cleanup-releases.yml scripts/; then
+            echo '分支上的清理代码已更新，等待下一次定时任务。'
+            exit 1
+          fi
+          git switch --detach FETCH_HEAD
+      - name: 清理已满 7 天且未被引用的镜像 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_PROMPT_DISABLED: '1'
+        run: python3 -B scripts/cleanup_releases.py --delete

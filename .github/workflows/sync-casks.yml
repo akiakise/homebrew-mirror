@@ -13,6 +13,7 @@ permissions:
 concurrency:
   group: sync-casks
   cancel-in-progress: false
+  queue: max
 
 jobs:
   sync:
