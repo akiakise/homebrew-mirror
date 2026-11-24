@@ -23,7 +23,7 @@ brew install --cask akiakise/mirror/chatgpt
 
 ## 自动同步
 
-推送到 `main` 时会触发同步，每天北京时间 **00:00（UTC+8）** 也会定时检查 Homebrew 官方 cask。更改配置后，可在 **Actions → 同步 Homebrew 镜像 → Run workflow** 手动运行。GitHub 的定时执行可能延迟。
+推送到 `main` 时会触发同步，工作流也会在每天北京时间（UTC+8）**00:00** 和 **12:00** 各检查一次 Homebrew 官方 cask。更改配置后，可在 **Actions → 同步 Homebrew 镜像 → Run workflow** 手动运行。GitHub 的定时执行可能延迟。
 
 有变化时，工作流会更新镜像清单和 cask 定义。默认分支须允许工作流推送。
 
