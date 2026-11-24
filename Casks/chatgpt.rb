@@ -2,13 +2,13 @@ cask "chatgpt" do
   arch arm: "arm64", intel: "x64"
   livecheck_arch = on_arch_conditional intel: "-x64"
 
-  version "26.1117.41037"
-  sha256 arm:   "bc0a42d01a9bdede1c1c2b876151a818560d6b1eaf1f45ae402d3d2229c34220",
-         intel: "72617c861a86f3e2aba7f60422bb0cf793a7a3969a387de52e6a685d3e970d4f"
+  version "26.1120.41243"
+  sha256 arm:   "ef8aad31409e2ee3993a9e740cf3e94e79e2d7219e50f48adea2217d4acf79d4",
+         intel: "0f18ce3b35bcec2600f9016f65084cf7da866f01f8c2e560786dc1b82bf13cd3"
 
   mirror_download = {
-    "72617c861a86f3e2aba7f60422bb0cf793a7a3969a387de52e6a685d3e970d4f" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-2026-11-23/chatgpt-26-1117-41037-macos-intel-72617c861a86f3e2-ChatGPT-darwin-x64-26.1117.41037.zip", "ChatGPT-darwin-x64-26.1117.41037.zip"],
-    "bc0a42d01a9bdede1c1c2b876151a818560d6b1eaf1f45ae402d3d2229c34220" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-2026-11-23/chatgpt-26-1117-41037-macos-arm64-bc0a42d01a9bdede-ChatGPT-darwin-arm64-26.1117.41037.zip", "ChatGPT-darwin-arm64-26.1117.41037.zip"],
+    "0f18ce3b35bcec2600f9016f65084cf7da866f01f8c2e560786dc1b82bf13cd3" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-2026-11-24/chatgpt-26-1120-41243-macos-intel-0f18ce3b35bcec26-ChatGPT-darwin-x64-26.1120.41243.zip", "ChatGPT-darwin-x64-26.1120.41243.zip"],
+    "ef8aad31409e2ee3993a9e740cf3e94e79e2d7219e50f48adea2217d4acf79d4" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-2026-11-24/chatgpt-26-1120-41243-macos-arm64-ef8aad31409e2ee3-ChatGPT-darwin-arm64-26.1120.41243.zip", "ChatGPT-darwin-arm64-26.1120.41243.zip"],
   }[sha256.to_s]
   url(mirror_download&.first || "https://persistent.oaistatic.com/codex-app-prod/ChatGPT-darwin-#{arch}-#{version}.zip")
   rename File.basename(mirror_download.first), mirror_download.last if mirror_download
