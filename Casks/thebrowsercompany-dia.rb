@@ -3,7 +3,7 @@ cask "thebrowsercompany-dia" do
   sha256 "738346f55d1a595061c5609ebe68a64c387e52ed7971106ec7ec8adefc1bb765"
 
   mirror_download = {
-    "738346f55d1a595061c5609ebe68a64c387e52ed7971106ec7ec8adefc1bb765" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-2026-11-24/thebrowsercompany-dia-1-58-1-91403-738346f55d1a5950-Dia-1.58.1-91403.zip", "Dia-1.58.1-91403.zip"],
+    "738346f55d1a595061c5609ebe68a64c387e52ed7971106ec7ec8adefc1bb765" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-2026-11-25/thebrowsercompany-dia-1-58-1-91403-738346f55d1a5950-Dia-1.58.1-91403.zip", "Dia-1.58.1-91403.zip"],
   }[sha256.to_s]
   url(mirror_download&.first || "https://releases.diabrowser.com/release/Dia-#{version.tr(",", "-")}.zip")
   rename File.basename(mirror_download.first), mirror_download.last if mirror_download

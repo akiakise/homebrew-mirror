@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | `claude-code` | `2.1.325` | GitHub Releases |
 | `thebrowsercompany-dia` | `1.58.1,91403` | GitHub Releases |
-| `chatgpt` | `26.1120.41243` | GitHub Releases |
+| `chatgpt` | `26.1120.50957` | GitHub Releases |
 <!-- mirror-catalog:end -->
 
 ```sh
