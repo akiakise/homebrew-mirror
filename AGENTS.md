@@ -15,5 +15,6 @@
 ## 同步与发布
 
 - 修改 [GitHub Actions 工作流](.github/workflows/sync-casks.yml) 时，保留 `main` 推送、UTC+8 午夜定时、手动触发和串行执行。自动回推使用内置 `GITHUB_TOKEN`，并跳过 `github-actions[bot]` 发起的推送，避免循环。
-- 修改发布逻辑时，按 [README.md](README.md#自动同步) 约定的日期和架构命名。所有已启用镜像 cask 版本未更新时，只读取上游版本元数据，直接跳过源文件和安装包下载、Release 覆盖及文件写入；检测到版本更新后，才清理当天目标 Release 的附件，先校验所有新包再删除旧附件。上传后核对 GitHub 附件 SHA-256，全部通过才改写 cask 下载地址。
+- 修改发布逻辑时，沿用 [README.md](README.md#自动同步) 的按 cask、版本和架构命名约定。对版本和下载来源未变的 cask，只读取上游版本元数据；先校验新包，再清理草稿中的无效附件，已发布 Release 只补传。上传后核对 GitHub 附件 SHA-256，通过后才改写下载地址。
+- 修改清理逻辑时，按 Release 对象的创建时间计算保留期，保护默认分支 cask 的当前版本和实际下载引用，不删除 Git 标签。
 - 修改清单或同步逻辑后，先运行 `python3 -B scripts/sync_casks.py --check` 验证。涉及镜像分支时，用 `MIRROR_ALLOWED_CASKS` 指定本次要检查的 cask。预检只读取上游定义，不下载安装包、不写入文件、不操作 Release；真实发布或覆盖不作为默认验证步骤。

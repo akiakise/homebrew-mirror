@@ -1,6 +1,6 @@
 # Homebrew 镜像 Tap
 
-此 Tap 同步 Homebrew 官方的 cask 定义。镜像开启时，一次同步的全部安装包放在同一个 GitHub Release；未开启的项目继续使用上游地址。
+此 Tap 同步 Homebrew 官方的 cask 定义。镜像开启时，每个 cask 的当前版本使用独立的 GitHub Release，并在其中保存该 cask 对应的全部安装包；未开启的项目继续使用上游地址。
 
 ## 镜像清单
 
@@ -36,15 +36,15 @@ brew install --cask akiakise/mirror/chatgpt
 
 官方 cask 的 BSD 许可不涵盖安装包。请逐项核对 [Claude Code](https://github.com/anthropics/claude-code/blob/main/LICENSE.md)、[Dia](https://www.diabrowser.com/termsofuse) 和 [ChatGPT](https://openai.com/policies/terms-of-use/) 的条款及你取得的授权，再配置 `MIRROR_ALLOWED_CASKS`。三项均获授权时，变量值为 `claude-code,thebrowsercompany-dia,chatgpt`。停用镜像会在下一次同步时恢复该项目的上游链接；清空变量后，同步任务不会操作任何已有 Release。
 
-Release 按同步开始时的北京时间（UTC+8）归档，例如标签 `mirror-2026-11-23`、标题「Homebrew 镜像 2026-11-23」。同一天的同步使用同一个 Release，不受触发提交影响。一个 cask 有多个安装包时，附件名会标出平台与架构，例如 `macos-arm64`、`macos-intel`、`linux-arm64`、`linux-intel`，以区分同一软件版本的不同包。
+每个镜像版本使用独立 Release，标签格式为 `mirror-<cask>--<version>`，例如 `mirror-chatgpt--26.1120.50957`。同一个 Release 包含该版本的全部安装包；多包时，附件名会标出平台和架构，例如 `macos-arm64`、`macos-intel`、`linux-arm64`、`linux-intel`。
 
-如果所有已启用镜像 cask 的上游版本都没有变化，工作流只读取上游版本元数据后直接跳过，不下载上游源文件和安装包、不覆盖 Release，也不写入 README 或 cask 文件。同日只有检测到至少一个已启用镜像 cask 版本更新时，才会覆盖当天的安装包；同步任务不会覆盖历史 Release。
+首次运行新流程时，仍使用日期 Release 的镜像会迁移到各自的版本 Release。迁移后，版本和下载来源未变的 cask 只检查上游版本元数据，不下载上游源文件或安装包，也不操作 Release。只更新一个镜像时，只发布该镜像对应的 Release，不覆盖其他镜像或旧版本的附件。
 
-覆盖期间，下载链接可能暂时不可用；被替换版本的旧链接会失效。若上传失败，可重新触发同步。请勿启用不可变发布，否则无法覆盖当天的附件。
+附件经 GitHub SHA-256 校验后才切换下载链接。若上传或回推失败，可重新触发同步。已发布的 Release 只补传缺失附件，保留现有附件；遇到同名附件校验不匹配时停止，需人工处理。请勿启用不可变发布，否则无法补传附件。
 
 ## 历史 Release 清理
 
-独立清理任务每天北京时间（UTC+8）**00:00** 触发，与同步任务串行执行。仅删除发布已满 7 天、标签以 `mirror-` 开头且默认分支 cask 不再引用的 Release 及附件，保留 Git 标签。已清理的历史下载链接将失效。
+独立清理任务每天北京时间（UTC+8）**00:00** 触发，与同步任务串行执行。已发布的镜像 Release 创建满 7 天后，只有在既不对应默认分支的 cask 当前版本、也不被任何 cask 引用时才清理。旧日期 Release 同样受引用保护。删除前如果发现默认分支已变化，任务会停止。只删除 Release 及附件，保留 Git 标签。
 
 ## 项目维护
 
