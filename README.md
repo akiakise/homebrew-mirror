@@ -7,8 +7,8 @@
 <!-- mirror-catalog:start -->
 | Cask | Homebrew 上游版本 | 下载来源 |
 | --- | --- | --- |
-| `claude-code` | `2.1.325` | GitHub Releases |
-| `thebrowsercompany-dia` | `1.58.1,91403` | GitHub Releases |
+| `claude-code` | `2.1.326` | GitHub Releases |
+| `thebrowsercompany-dia` | `1.58.2,91529` | GitHub Releases |
 | `chatgpt` | `26.1120.50957` | GitHub Releases |
 <!-- mirror-catalog:end -->
 

@@ -1,9 +1,9 @@
 cask "thebrowsercompany-dia" do
-  version "1.58.1,91403"
-  sha256 "738346f55d1a595061c5609ebe68a64c387e52ed7971106ec7ec8adefc1bb765"
+  version "1.58.2,91529"
+  sha256 "971d8ab2a05e5cbe06e1ebb3397481287f5aa461cd4d5fb1fd8d37afd164796f"
 
   mirror_download = {
-    "738346f55d1a595061c5609ebe68a64c387e52ed7971106ec7ec8adefc1bb765" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-2026-11-25/thebrowsercompany-dia-1-58-1-91403-738346f55d1a5950-Dia-1.58.1-91403.zip", "Dia-1.58.1-91403.zip"],
+    "971d8ab2a05e5cbe06e1ebb3397481287f5aa461cd4d5fb1fd8d37afd164796f" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-thebrowsercompany-dia--1.58.2%2C91529/thebrowsercompany-dia-1-58-2-91529-971d8ab2a05e5cbe-Dia-1.58.2-91529.zip", "Dia-1.58.2-91529.zip"],
   }[sha256.to_s]
   url(mirror_download&.first || "https://releases.diabrowser.com/release/Dia-#{version.tr(",", "-")}.zip")
   rename File.basename(mirror_download.first), mirror_download.last if mirror_download

@@ -2,17 +2,17 @@ cask "claude-code" do
   arch arm: "arm64", intel: "x64"
   os macos: "darwin", linux: "linux"
 
-  version "2.1.325"
-  sha256 arm:          "84590fefe6338be9087f5814b61f9a54c5f21524163a4c127cb5a808e31009f2",
-         intel:        "af9760c59f947044e2a0d5072343de563f31efb68bd18ccee4f43c5240570de7",
-         arm64_linux:  "7b6e484b1989a5a14a4b354709ccc8672518a3ec5b9ccd7981fc6254327fde67",
-         x86_64_linux: "0dc4f4a9a165fc60746d7ae8489712e5fc352f1e7ad4eb22e7141bd0812eb0cf"
+  version "2.1.326"
+  sha256 arm:          "e214ad76dcc0e846b03be28ed1c2734aacd4e27acb527cb7f8a9e2bed644e837",
+         intel:        "bd8e26290f93353590b831600a7ced02d625018fbaa2a82d8817368d3e2d2f82",
+         arm64_linux:  "98d56f6ffe53469767a74864a38eaf359d62ef557a8de1b1ad524d61a66ec119",
+         x86_64_linux: "b6b3647d981130dc44fc670846ae97b6cde531ffb667cf9c4d17cfcafb38cb37"
 
   mirror_download = {
-    "0dc4f4a9a165fc60746d7ae8489712e5fc352f1e7ad4eb22e7141bd0812eb0cf" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-2026-11-25/claude-code-2-1-325-linux-intel-0dc4f4a9a165fc60-claude", "claude"],
-    "7b6e484b1989a5a14a4b354709ccc8672518a3ec5b9ccd7981fc6254327fde67" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-2026-11-25/claude-code-2-1-325-linux-arm64-7b6e484b1989a5a1-claude", "claude"],
-    "84590fefe6338be9087f5814b61f9a54c5f21524163a4c127cb5a808e31009f2" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-2026-11-25/claude-code-2-1-325-macos-arm64-84590fefe6338be9-claude", "claude"],
-    "af9760c59f947044e2a0d5072343de563f31efb68bd18ccee4f43c5240570de7" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-2026-11-25/claude-code-2-1-325-macos-intel-af9760c59f947044-claude", "claude"],
+    "98d56f6ffe53469767a74864a38eaf359d62ef557a8de1b1ad524d61a66ec119" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-claude-code--2.1.326/claude-code-2-1-326-linux-arm64-98d56f6ffe534697-claude", "claude"],
+    "b6b3647d981130dc44fc670846ae97b6cde531ffb667cf9c4d17cfcafb38cb37" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-claude-code--2.1.326/claude-code-2-1-326-linux-intel-b6b3647d981130dc-claude", "claude"],
+    "bd8e26290f93353590b831600a7ced02d625018fbaa2a82d8817368d3e2d2f82" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-claude-code--2.1.326/claude-code-2-1-326-macos-intel-bd8e26290f933535-claude", "claude"],
+    "e214ad76dcc0e846b03be28ed1c2734aacd4e27acb527cb7f8a9e2bed644e837" => ["https://gh-proxy.com/https://github.com/akiakise/homebrew-mirror/releases/download/mirror-claude-code--2.1.326/claude-code-2-1-326-macos-arm64-e214ad76dcc0e846-claude", "claude"],
   }[sha256.to_s]
   url(mirror_download&.first || "https://downloads.claude.ai/claude-code-releases/#{version}/#{os}-#{arch}/claude")
   rename File.basename(mirror_download.first), mirror_download.last if mirror_download
