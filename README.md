@@ -12,7 +12,7 @@
 | [`claude-code`](https://github.com/Homebrew/homebrew-cask/blob/HEAD/Casks/c/claude-code.rb) | `2.1.326` | GitHub Releases |
 | [`thebrowsercompany-dia`](https://github.com/Homebrew/homebrew-cask/blob/HEAD/Casks/t/thebrowsercompany-dia.rb) | `1.58.2,91529` | GitHub Releases |
 | [`chatgpt`](https://github.com/Homebrew/homebrew-cask/blob/HEAD/Casks/c/chatgpt.rb) | `26.1120.50957` | GitHub Releases |
-| [`visual-studio-code`](https://github.com/Homebrew/homebrew-cask/blob/HEAD/Casks/v/visual-studio-code.rb) | 待同步 | 待同步 |
+| [`visual-studio-code`](https://github.com/Homebrew/homebrew-cask/blob/HEAD/Casks/v/visual-studio-code.rb) | `1.148.0` | GitHub Releases |
 <!-- mirror-catalog:end -->
 
 ```sh

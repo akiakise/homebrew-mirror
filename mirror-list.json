@@ -1,12 +1,18 @@
 {
   "claude-code": {
-    "version": "2.1.326"
+    "version": "2.1.326",
+    "state": "9a394ea658ab00e1182ba4e0da32777ae75c3dc089b2ad314245223feb2be8a5"
   },
   "thebrowsercompany-dia": {
-    "version": "1.58.2,91529"
+    "version": "1.58.2,91529",
+    "state": "448c583b078809286ca9efcc5b8e91742911786650b43d4f130002968738f689"
   },
   "chatgpt": {
-    "version": "26.1120.50957"
+    "version": "26.1120.50957",
+    "state": "ea9cb814204adb0129597f868dc7b701fdb2c36f22cd7db7ce6831d3f224eb18"
   },
-  "visual-studio-code": {}
+  "visual-studio-code": {
+    "version": "1.148.0",
+    "state": "f2b7c4d20950e706ef9ab0d570aa9eadffab7e3cce4531e88e8e81428a95b2f6"
+  }
 }
