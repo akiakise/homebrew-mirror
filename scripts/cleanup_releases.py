@@ -6,15 +6,16 @@ import re
 import sys
 
 from sync_casks import (
+    MIRROR_LIST,
     MIRROR_TAG_PREFIX,
     ROOT,
     VERSIONED_TAG,
     ProgressLog,
     UTC_PLUS_8,
-    cask_version,
+    cask_versions,
     gh,
     github_api,
-    parse_catalog,
+    read_mirror_list,
     read_release,
     release_links,
     release_tag,
@@ -36,14 +37,14 @@ query($owner: String!, $name: String!, $endCursor: String) {
 
 
 def protected_tags(repo):
-    _, tokens, _ = parse_catalog((ROOT / "README.md").read_text(encoding="utf-8"))
+    catalog = read_mirror_list(ROOT / MIRROR_LIST)
     sources = {path: path.read_text(encoding="utf-8") for path in (ROOT / "Casks").rglob("*.rb")}
     protected = {tag for source in sources.values() for _, tag in release_links(repo, source)}
-    for token in tokens:
+    for token, entry in catalog.items():
+        version = entry.get("version")
         source = sources.get(ROOT / "Casks" / f"{token}.rb", "")
-        version = cask_version(source)
-        if version is None:
-            raise ValueError(f"{token}：无法确定默认分支 cask 的当前版本，停止清理")
+        if version not in cask_versions(source):
+            raise ValueError(f"{token}：清单主版本与默认分支 cask 定义不一致，停止清理")
         if version != "latest":
             protected.add(release_tag(token, version))
     return protected
@@ -79,7 +80,7 @@ def cleanup(repo, cutoff, delete, progress):
     if delete:
         git = ["git", "-C", str(ROOT)]
         checkout = progress.command([*git, "rev-parse", "--verify", "HEAD"]).strip()
-        if progress.command([*git, "status", "--porcelain", "--", "README.md", "Casks/"]).strip():
+        if progress.command([*git, "status", "--porcelain", "--", MIRROR_LIST, "Casks/"]).strip():
             raise ValueError("当前工作树的镜像清单或 cask 有未提交改动，停止清理")
     protected = protected_tags(repo)
     progress.log(f"开始扫描 Release：保护 {len(protected)} 个当前版本或引用标签")

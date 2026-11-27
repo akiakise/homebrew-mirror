@@ -35,16 +35,18 @@ jobs:
             exit 1
           fi
           git switch --detach FETCH_HEAD
-      - name: 同步上游 cask 和允许镜像的安装包
+      - name: 同步清单中的 cask 和安装包
         env:
           GH_TOKEN: ${{ github.token }}
           GH_PROMPT_DISABLED: '1'
-          MIRROR_ALLOWED_CASKS: ${{ vars.MIRROR_ALLOWED_CASKS }}
           MIRROR_PROXY_PREFIX: ${{ vars.MIRROR_PROXY_PREFIX }}
         run: python3 -B scripts/sync_casks.py
       - name: 提交同步结果
         run: |
-          git add -- README.md Casks/*.rb
+          git add -- mirror-list.json Casks/*.rb
+          if [ -f README.md ]; then
+            git add -- README.md
+          fi
           if git diff --cached --quiet; then
             exit 0
           fi

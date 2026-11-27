@@ -13,16 +13,17 @@ from urllib.parse import quote, unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
+MIRROR_LIST = "mirror-list.json"
 CATALOG_START = "<!-- mirror-catalog:start -->"
 CATALOG_END = "<!-- mirror-catalog:end -->"
 TABLE_HEADER = "| Cask | Homebrew 上游版本 | 下载来源 |\n| --- | --- | --- |"
 TOKEN_PATTERN = r"[a-z0-9]+(?:[-@+.][a-z0-9]+)*"
 VERSION_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._,+-]*"
-ROW_PATTERN = re.compile(rf"\| `({TOKEN_PATTERN})` \| [^|]+ \| [^|]+ \|")
-URL_STANZA = re.compile(r'^  url ("(?:[^"\\#\n]|\\[^\n]|#\{[^{}\n]+\})+")$', re.MULTILINE)
-VERSION_STANZA = re.compile(r'^  version (?:"([^"\n]+)"|:(latest))$', re.MULTILINE)
 SHA256_PATTERN = r"[0-9a-f]{64}"
+URL_STANZA = re.compile(r'^  url ("(?:[^"\\#\n]|\\[^\n]|#\{[^{}\n]+\})+")$', re.MULTILINE)
+VERSION_STANZA = re.compile(r'^ {2,}version (?:"([^"\n]+)"|:(latest))$', re.MULTILINE)
 CASK_API = "https://formulae.brew.sh/api/cask"
+CASK_SOURCE_PAGE = "https://github.com/Homebrew/homebrew-cask/blob/HEAD"
 UPSTREAM_RAW = "https://raw.githubusercontent.com/Homebrew/homebrew-cask"
 DEFAULT_PROXY = "https://gh-proxy.com/"
 MIRROR_TAG_PREFIX = "mirror-"
@@ -93,22 +94,47 @@ class ProgressLog:
             self.log(message)
 
 
-def parse_catalog(readme):
-    before, start, rest = readme.partition(CATALOG_START)
-    table, end, after = rest.partition(CATALOG_END)
-    if not start or not end or readme.count(CATALOG_START) != 1 or readme.count(CATALOG_END) != 1:
-        raise ValueError("README.md 必须包含唯一一对镜像清单标记")
+def unique_json_object(pairs):
+    fields = dict(pairs)
+    if len(fields) != len(pairs):
+        raise ValueError(f"{MIRROR_LIST} 包含重复字段")
+    return fields
 
-    rows = table.strip().splitlines()
-    if rows[:2] != TABLE_HEADER.splitlines() or len(rows) < 3:
-        raise ValueError("README.md 的镜像清单表头不正确或清单为空")
-    tokens = []
-    for row in rows[2:]:
-        match = ROW_PATTERN.fullmatch(row)
-        if not match or match[1] in tokens:
-            raise ValueError(f"README.md 中的镜像清单行格式不正确或重复：{row}")
-        tokens.append(match[1])
-    return before + start, tokens, end + after
+
+def read_mirror_list(path):
+    catalog = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_json_object)
+    if not isinstance(catalog, dict) or not catalog:
+        raise ValueError(f"{MIRROR_LIST} 必须是非空的 cask 对象")
+    for token, entry in catalog.items():
+        if not re.fullmatch(TOKEN_PATTERN, token) or not isinstance(entry, dict) or entry.keys() - {"version", "state"}:
+            raise ValueError(f"{MIRROR_LIST} 包含无效条目：{token!r}")
+        if "version" in entry:
+            version = entry["version"]
+            if not isinstance(version, str) or not re.fullmatch(VERSION_PATTERN, version):
+                raise ValueError(f"{MIRROR_LIST} 中 {token} 的版本无效")
+            release_tag(token, version)
+        if "state" in entry and (
+            "version" not in entry or not isinstance(entry["state"], str) or not re.fullmatch(SHA256_PATTERN, entry["state"])
+        ):
+            raise ValueError(f"{MIRROR_LIST} 中 {token} 的同步状态无效")
+    return catalog
+
+
+def update_readme(rows, progress):
+    readme = ROOT / "README.md"
+    try:
+        current = readme.read_text(encoding="utf-8")
+        before, start, rest = current.partition(CATALOG_START)
+        _, end, after = rest.partition(CATALOG_END)
+        if not start or not end or current.count(CATALOG_START) != 1 or current.count(CATALOG_END) != 1:
+            progress.log("README.md 展示表标记缺失或重复，跳过展示更新")
+            return
+        updated = before + start + "\n" + "\n".join(rows) + "\n" + end + after
+        if updated != current:
+            readme.write_text(updated, encoding="utf-8")
+            progress.log("已写入 README.md")
+    except (OSError, UnicodeError) as error:
+        progress.log(f"跳过 README.md 展示更新：{error}")
 
 
 def proxy_prefix(value):
@@ -162,9 +188,22 @@ def upstream_cask(progress, token, metadata):
     return source.decode("utf-8")
 
 
-def cask_version(source):
-    match = VERSION_STANZA.search(source)
-    return (match[1] or match[2]) if match else None
+def cask_versions(source):
+    return {version or latest for version, latest in VERSION_STANZA.findall(source)}
+
+
+def platform_metadata(metadata):
+    for platform in metadata.get("supported_platforms") or ():
+        yield platform, metadata | metadata["variations"].get(platform, {})
+
+
+def mirror_state(repo, prefix, metadata, source):
+    platforms = {
+        platform: {field: target.get(field) for field in ("version", "sha256", "url", "url_specs")}
+        for platform, target in platform_metadata(metadata)
+    }
+    state = [repo, prefix, metadata["version"], metadata["ruby_source_checksum"]["sha256"], platforms, source]
+    return hashlib.sha256(json.dumps(state, sort_keys=True).encode()).hexdigest()
 
 
 def release_tag(token, version):
@@ -191,13 +230,12 @@ def release_plan(repo, tag, prefix, metadata):
     token, version = metadata["token"], metadata["version"]
     if version == "latest":
         raise ValueError(f"{token}：无法为无固定版本的 cask 镜像安装包")
-    platforms = metadata.get("supported_platforms")
+    platforms = dict(platform_metadata(metadata))
     if not platforms:
         raise ValueError(f"{token}：上游未声明支持的平台")
     files = {}
     platforms_by_checksum = {}
-    for platform in platforms:
-        target = metadata | metadata["variations"].get(platform, {})
+    for platform, target in platforms.items():
         checksum = target["sha256"]
         url = target["url"]
         if not isinstance(url, str) or not checksum or not re.fullmatch(SHA256_PATTERN, checksum):
@@ -377,40 +415,37 @@ def publish_release(repo, tag, title, assets, release, progress):
     progress.log(f"{tag}：Release 发布完成")
 
 
-def sync(repo, allowed, prefix, check, progress):
-    readme = ROOT / "README.md"
-    current_readme = readme.read_text(encoding="utf-8")
-    before, tokens, after = parse_catalog(current_readme)
-    if allowed - set(tokens):
-        raise ValueError(f"MIRROR_ALLOWED_CASKS 包含不在 README.md 清单中的名称：{', '.join(sorted(allowed - set(tokens)))}")
+def sync(repo, prefix, check, progress):
+    catalog_path = ROOT / MIRROR_LIST
+    catalog = read_mirror_list(catalog_path)
 
     rows = [TABLE_HEADER]
+    updated_catalog = {}
     definitions = {}
     release_plans = []
-    progress.log(f"共 {len(tokens)} 个 cask")
-    for index, token in enumerate(tokens, 1):
-        progress.log(f"开始处理 cask {token}（{index}/{len(tokens)}）")
+    progress.log(f"共 {len(catalog)} 个 cask")
+    for index, (token, entry) in enumerate(catalog.items(), 1):
+        progress.log(f"开始处理 cask {token}（{index}/{len(catalog)}）")
         metadata = upstream_metadata(progress, token)
         version = metadata["version"]
-        tag = release_tag(token, version) if token in allowed else None
-        status = "GitHub Releases" if tag else "上游直连"
-        rows.append(f"| `{token}` | `{version}` | {status} |")
+        tag = release_tag(token, version)
         path = ROOT / "Casks" / f"{token}.rb"
         current = path.read_text(encoding="utf-8") if path.is_file() else ""
-        expected_links = {(prefix, tag)} if tag else set()
-        if not check and cask_version(current) == version and release_links(repo, current) == expected_links:
-            progress.log(f"{token} {version}：版本和下载来源未变化，跳过（{index}/{len(tokens)}）")
-            continue
-
-        source = upstream_cask(progress, token, metadata)
-        if tag:
+        state = mirror_state(repo, prefix, metadata, current)
+        if not check and current and state == entry.get("state"):
+            progress.log(f"{token} {version}：上游定义、安装包和镜像地址未变化，跳过（{index}/{len(catalog)}）")
+        else:
+            source = upstream_cask(progress, token, metadata)
             assets, mirror_downloads = release_plan(repo, tag, prefix, metadata)
             source = replace_download_url(token, source, mirror_downloads)
-            release_plans.append((tag, f"Homebrew 镜像 {token} {version}", assets))
-            status = f"{tag}，{len(assets)} 个附件"
-        progress.log(f"{token} {version}：已检查 {status}（{index}/{len(tokens)}）")
-        if source != current:
-            definitions[path] = source
+            if source != current:
+                definitions[path] = source
+                state = mirror_state(repo, prefix, metadata, source)
+                release_plans.append((tag, f"Homebrew 镜像 {token} {version}", assets))
+            progress.log(f"{token} {version}：已检查 {tag}，{len(assets)} 个附件（{index}/{len(catalog)}）")
+        updated_catalog[token] = {"version": version, "state": state}
+        source_path = quote(metadata["ruby_source_path"])
+        rows.append(f"| [`{token}`]({CASK_SOURCE_PAGE}/{source_path}) | `{version}` | GitHub Releases |")
 
     if check:
         progress.log("检查完成，不下载安装包、不操作 Release、不写入文件。")
@@ -423,12 +458,12 @@ def sync(repo, allowed, prefix, check, progress):
         publish_release(repo, tag, title, assets, release, progress)
         progress.log(f"{tag}：Release 同步完成（{index}/{len(release_plans)}）")
 
-    new_readme = before + "\n" + "\n".join(rows) + "\n" + after
-    if new_readme != current_readme:
-        definitions[readme] = new_readme
+    if updated_catalog != catalog:
+        definitions[catalog_path] = json.dumps(updated_catalog, indent=2) + "\n"
     for path, contents in definitions.items():
         path.write_text(contents, encoding="utf-8")
         progress.log(f"已写入 {path.relative_to(ROOT)}")
+    update_readme(rows, progress)
 
 
 def main():
@@ -440,10 +475,9 @@ def main():
         repo = os.environ.get("GITHUB_REPOSITORY", "akiakise/homebrew-mirror")
         if not re.fullmatch(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+", repo):
             raise ValueError("GITHUB_REPOSITORY 必须为 owner/repo")
-        allowed = set(filter(None, re.split(r"[\s,]+", os.environ.get("MIRROR_ALLOWED_CASKS", ""))))
         prefix = proxy_prefix(os.environ.get("MIRROR_PROXY_PREFIX", "").strip())
-        progress.log(f"开始同步：仓库 {repo}，镜像 {len(allowed)} 个，检查模式 {args.check}")
-        sync(repo, allowed, prefix, args.check, progress)
+        progress.log(f"开始同步：仓库 {repo}，检查模式 {args.check}")
+        sync(repo, prefix, args.check, progress)
         progress.log("同步成功")
     except KeyboardInterrupt:
         progress.log("同步取消")
